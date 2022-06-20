@@ -3,6 +3,7 @@ pragma solidity ^0.8.11;
 import "./access/AccessControl.sol";
 import "./utils/Arrays.sol";
 import "./SafeMintData.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract SafeMint is AccessControl, SafeMintData {
     modifier onlyAdmin() {
@@ -13,9 +14,19 @@ contract SafeMint is AccessControl, SafeMintData {
         _;
     }
 
+    modifier onlyAuditor() {
+        // 确认审计员身份
+        require(
+            hasRole(AUDITOR_ROLE, msg.sender),
+            "sender doesn't have auditor role"
+        );
+        _;
+    }
+
     /// @dev 构造函数
-    constructor() {
+    constructor(address _token) {
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        token = _token;
     }
 
     /**
@@ -32,9 +43,9 @@ contract SafeMint is AccessControl, SafeMintData {
         uint256 startTime,
         uint256 endTime,
         string calldata ipfsAddress
-    ) public payable {
+    ) public {
         // 验证项目收费
-        require(msg.value >= projectPrice, "low price");
+        IERC20(token).transferFrom(msg.sender, address(this), projectPrice);
         // 验证用户只能提交一次
         require(
             !user[msg.sender] && msg.sender == tx.origin,
@@ -57,7 +68,7 @@ contract SafeMint is AccessControl, SafeMintData {
             startTime: startTime,
             endTime: endTime,
             ipfsAddress: ipfsAddress,
-            projectFee: msg.value,
+            projectFee: projectPrice,
             status: Status.pending
         });
 
@@ -66,210 +77,19 @@ contract SafeMint is AccessControl, SafeMintData {
         // 项目ID
         uint256 _projectId = pendingArr.length;
         // 记录项目ID
-        projectId[keccak256(abi.encodePacked(name))] = _projectId;
+        namehashToId[keccak256(abi.encodePacked(name))] = _projectId;
         // 推入处理中数组
         pendingArr.push(_projectId);
-        // 记录项目收费
-        feeRecord[_projectId] = FeeRecord({
-            auditTime: 0,
-            auditor: address(0),
-            value: msg.value
-        });
         emit SaveProject(
             name,
             msg.sender,
             projectContract,
             startTime,
             endTime,
-            msg.value,
+            projectPrice,
             ipfsAddress,
             _projectId
         );
-    }
-
-    /**
-     * @dev 审计项目
-     * @param name 项目名称
-     * @param comments 审计备注
-     * @param status 结果状态
-     */
-    function audit(
-        string calldata name,
-        string calldata comments,
-        Status status
-    ) public payable {
-        // 确认审计员身份
-        require(
-            hasRole(AUDITOR_ROLE, msg.sender),
-            "sender doesn't have auditor role"
-        );
-        // 项目ID
-        uint256 _projectId = projectId[keccak256(abi.encodePacked(name))];
-        // 确认ID有效
-        require(_projectId > 0, "project not exist");
-        require(
-            projectArr[_projectId - 1].status == Status.pending,
-            "Status not pending"
-        );
-        if (feeRecord[_projectId].auditTime == 0) {
-            // 验证审计收费
-            require(msg.value >= auditPrice, "low price");
-            feeRecord[_projectId].auditTime = block.timestamp;
-            feeRecord[_projectId].auditor = msg.sender;
-            feeRecord[_projectId].value += msg.value;
-        } else {
-            require(
-                feeRecord[_projectId].auditor == msg.sender,
-                "auditor error!"
-            );
-        }
-        // 确认状态输入正确
-        require(
-            status == Status.passed ||
-                status == Status.reject ||
-                status == Status.locked,
-            "Status error!"
-        );
-        // 推入审计记录
-        auditRecord[_projectId].push(
-            Audit({
-                projectId: _projectId,
-                auditor: msg.sender,
-                auditTime: block.timestamp,
-                comments: comments,
-                auditFee: msg.value,
-                status: status
-            })
-        );
-        // 从pending数组中移除项目ID
-        Arrays.removeByValue(pendingArr, _projectId);
-        // 如果状态为通过
-        if (status == Status.passed) {
-            // 推入通过数组
-            passedArr.push(_projectId);
-        }
-        // 如果状态为驳回
-        if (status == Status.reject) {
-            // 推入驳回数组
-            rejectArr.push(_projectId);
-        }
-        // 如果状态为锁定
-        if (status == Status.locked) {
-            // 推入锁定数组
-            lockedArr.push(_projectId);
-        }
-        // 修改项目状态
-        projectArr[_projectId - 1].status = status;
-        // 触发事件
-        emit AuditProject(name, msg.sender, msg.value, comments, status);
-    }
-
-    /**
-     * @dev 挑战项目
-     * @param name 项目名称
-     * @param comments 审计备注
-     */
-    function challenge(string calldata name, string calldata comments)
-        public
-        payable
-    {
-        // 验证审计收费
-        require(msg.value >= challengePrice, "low price");
-        // 项目ID
-        uint256 _projectId = projectId[keccak256(abi.encodePacked(name))];
-        // 确认ID有效
-        require(_projectId > 0, "project not exist");
-        // 确认项目审核时间
-        require(
-            feeRecord[_projectId].auditTime + duration > block.timestamp,
-            "expired!"
-        );
-        // 确认项目状态
-        require(
-            projectArr[_projectId - 1].status == Status.passed,
-            "Status error!"
-        );
-        // 推入挑战记录数组
-        challengeRecord[_projectId].push(
-            Challenge({
-                projectId: _projectId,
-                challenger: msg.sender,
-                time: block.timestamp,
-                challengeFee: msg.value,
-                comments: comments
-            })
-        );
-        // 修改状态
-        projectArr[_projectId - 1].status = Status.challenge;
-        // 推入挑战数组
-        challengeArr.push(_projectId);
-        emit ChallengeProject(name, msg.sender, msg.value, comments);
-    }
-
-    /**
-     * @dev 仲裁项目
-     * @param name 项目名称
-     * @param status 仲裁结果
-     */
-    function Arbitrate(string calldata name, Status status) public {
-        // 确认仲裁员身份
-        require(
-            hasRole(ARBITRATOR_ROLE, msg.sender),
-            "sender doesn't have arbitrator role"
-        );
-        // 确认仲裁结果
-        require(
-            status == Status.passed || status == Status.locked,
-            "Status error!"
-        );
-        // 项目ID
-        uint256 _projectId = projectId[keccak256(abi.encodePacked(name))];
-        // 确认项目ID有效
-        require(_projectId > 0, "project not exist");
-        // 确认项目状态为仲裁中
-        require(
-            projectArr[_projectId - 1].status == Status.challenge,
-            "Status error!"
-        );
-        // 从挑战的数组中移除项目ID
-        Arrays.removeByValue(challengeArr, _projectId);
-        // 如果状态为通过
-        if (status == Status.passed) {
-            // 挑战押金
-            uint256 _challengeFee;
-            // 循环累计挑战押金
-            for (uint256 i; i < challengeRecord[_projectId].length; ++i) {
-                _challengeFee += challengeRecord[_projectId][i].challengeFee;
-                challengeRecord[_projectId][i].challengeFee = 0;
-            }
-            // 将挑战押金记录到审核费用
-            feeRecord[_projectId].value += _challengeFee;
-            // 推入通过数组
-            passedArr.push(_projectId);
-        }
-        // 如果状态为锁定
-        if (status == Status.locked) {
-            // 从通过的数组中移除项目ID
-            Arrays.removeByValue(passedArr, _projectId);
-            // 挑战记录数组长度
-            uint256 chellengeLength = challengeRecord[_projectId].length;
-            // 挑战奖励 = 审计押金总和 * 1e18 / 挑战记录长度
-            uint256 chellengeReward = (feeRecord[_projectId].value * 1e18) /
-                chellengeLength;
-            // 循环挑战记录数组
-            for (uint256 i; i < chellengeLength; ++i) {
-                // 为每个挑战记录增加审计奖金
-                challengeRecord[_projectId][i].challengeFee +=
-                    chellengeReward /
-                    1e18;
-            }
-            feeRecord[_projectId].value = 0;
-            // 推入锁定数组
-            lockedArr.push(_projectId);
-        }
-        // 修改项目状态
-        projectArr[_projectId - 1].status = status;
-        emit ArbitrateProject(name, msg.sender, status);
     }
 
     /**
@@ -285,13 +105,8 @@ contract SafeMint is AccessControl, SafeMintData {
         uint256 endTime,
         string calldata ipfsAddress
     ) public {
-        // 项目ID
-        uint256 _projectId = projectId[keccak256(abi.encodePacked(name))];
-        // 确认ID有效
-        require(_projectId > 0, "project not exist");
-
         // 项目结构体
-        Project storage _project = projectArr[_projectId - 1];
+        (uint256 _projectId, Project memory _project) = getProject(name);
         // 确认调用者身份
         require(_project.owner == msg.sender, "caller is not project owner");
         // 确认状态输入正确
@@ -300,8 +115,9 @@ contract SafeMint is AccessControl, SafeMintData {
         _project.startTime = startTime;
         _project.endTime = endTime;
         _project.ipfsAddress = ipfsAddress;
-        // 修改状态
         _project.status = Status.pending;
+        // 修改状态
+        _saveProject(_projectId, _project);
         // 从驳回的数组中移除项目ID
         Arrays.removeByValue(rejectArr, _projectId);
         // 推入到处理中数组
@@ -309,58 +125,80 @@ contract SafeMint is AccessControl, SafeMintData {
         emit EditProject(name, startTime, endTime, ipfsAddress);
     }
 
-    function claimAuditReward(uint256 _projectId) public {
-        // 确认项目ID
-        require(
-            _projectId > 0 && _projectId < projectArr.length,
-            "project id error"
-        );
-        // 确认项目审核时间
-        require(
-            feeRecord[_projectId].auditTime + duration < block.timestamp,
-            "auditTime < duration!"
-        );
-        // 确认项目状态必须为通过或者锁定状态
-        require(
-            projectArr[_projectId - 1].status == Status.passed ||
-                projectArr[_projectId - 1].status == Status.locked,
-            "Starus error"
-        );
-        require(feeRecord[_projectId].auditor == msg.sender, "auditor error!");
-        uint256 value = feeRecord[_projectId].value;
-        if (value > 0) {
-            payable(msg.sender).transfer(value);
-        }
-    }
-
-    function claimChellengeReward(uint256 _projectId) public {
-        // 确认项目ID
-        require(
-            _projectId > 0 && _projectId < projectArr.length,
-            "project id error"
-        );
-        // 确认项目审核时间
-        require(
-            feeRecord[_projectId].auditTime + duration < block.timestamp,
-            "auditTime < duration!"
-        );
-        // 确认项目状态必须为锁定状态
-        require(
-            projectArr[_projectId - 1].status == Status.locked,
-            "Starus error"
-        );
-        // 挑战费用
-        uint256 challengeFee;
-        // 循环所有挑战
-        for (uint256 i = 0; i < challengeRecord[_projectId].length; i++) {
-            // 如果挑战者是当前用户,并且费用>0
-            if (challengeRecord[_projectId][i].challenger == msg.sender) {
-                challengeFee += challengeRecord[_projectId][i].challengeFee;
+    /**
+     * @dev 状态转换
+     * @param name 项目名称
+     * @param status 结果状态
+     */
+    function projectStatus(string calldata name, Status status)
+        public
+        onlyAuditor
+    {
+        // 项目ID, 项目结构体
+        (uint256 _projectId, Project memory _project) = getProject(name);
+        if (_project.status == Status.pending) {
+            // 确认状态输入正确
+            require(
+                status == Status.passed ||
+                    status == Status.reject ||
+                    status == Status.locked,
+                "Status error!"
+            );
+            // 从pending数组中移除项目ID
+            Arrays.removeByValue(pendingArr, _projectId);
+            // 如果状态为通过
+            if (status == Status.passed) {
+                // 推入通过数组
+                passedArr.push(_projectId);
+                // 修改状态
+                _project.status = Status.passed;
             }
+            // 如果状态为驳回
+            if (status == Status.reject) {
+                // 推入驳回数组
+                rejectArr.push(_projectId);
+                // 修改状态
+                _project.status = Status.reject;
+            }
+            // 如果状态为锁定
+            if (status == Status.locked) {
+                // 推入锁定数组
+                lockedArr.push(_projectId);
+                // 修改状态
+                _project.status = Status.locked;
+            }
+        } else if (_project.status == Status.challenge) {
+            // 确认状态输入正确
+            require(
+                status == Status.passed || status == Status.locked,
+                "Status error!"
+            );
+            // 从挑战的数组中移除项目ID
+            Arrays.removeByValue(challengeArr, _projectId);
+            if (status == Status.passed) {
+                // 修改状态
+                _project.status = Status.passed;
+            }
+            // 如果状态为锁定
+            if (status == Status.locked) {
+                // 从通过的数组中移除项目ID
+                Arrays.removeByValue(passedArr, _projectId);
+                // 推入锁定数组
+                lockedArr.push(_projectId);
+                // 修改状态
+                _project.status = Status.locked;
+            }
+        } else if (_project.status == Status.passed) {
+            // 确认状态输入正确
+            require(status == Status.challenge, "Status error!");
+            // 推入挑战数组
+            challengeArr.push(_projectId);
+            // 修改状态
+            _project.status = Status.challenge;
         }
-        if (challengeFee > 0) {
-            payable(msg.sender).transfer(challengeFee);
-        }
+        _saveProject(_projectId, _project);
+        // 触发事件
+        emit ProjectStatus(name, status);
     }
 
     /// @dev 管理员设置价格
@@ -368,32 +206,32 @@ contract SafeMint is AccessControl, SafeMintData {
         projectPrice = _price;
     }
 
-    /// @dev 管理员设置审计押金
-    function adminSetAuditPrice(uint256 _price) public onlyAdmin {
-        auditPrice = _price;
+    /// @dev 管理员取款
+    function adminWithdraw(address payable to) public onlyAdmin {
+        IERC20(token).transfer(to, IERC20(token).balanceOf(address(this)));
     }
 
-    /// @dev 管理员设置挑战价格
-    function adminSetChellengePrice(uint256 _price) public onlyAdmin {
-        challengePrice = _price;
-    }
-
-    /// @dev 管理员设置挑战时长
-    function adminSetDuration(uint256 _duration) public onlyAdmin {
-        duration = _duration;
-    }
-
-    function adminWithdraw(address payable to) public {
+    function auditorClaimFee(string calldata name) public onlyAuditor {
+        // 项目ID, 项目结构体
+        (, Project memory _project) = getProject(name);
         require(
-            hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "sender doesn't have admin role"
+            _project.status == Status.locked ||
+                _project.status == Status.passed,
+            "Status error!"
         );
-        to.transfer(address(this).balance);
+        if (_project.projectFee > 0) {
+            IERC20(token).transfer(msg.sender, _project.projectFee);
+            emit AuditorClaimFee(name, _project.projectFee);
+        }
     }
 
     /// @dev 返回项目名称是否存在
     function projectName(string calldata name) public view returns (bool) {
-        return projectId[keccak256(abi.encodePacked(name))] > 0;
+        return namehashToId[keccak256(abi.encodePacked(name))] > 0;
+    }
+
+    function _saveProject(uint256 _projectId, Project memory _project) private {
+        projectArr[_projectId - 1] = _project;
     }
 
     /**
@@ -469,5 +307,34 @@ contract SafeMint is AccessControl, SafeMintData {
         returns (Project[] memory)
     {
         return getArrs(challengeArr, start, limit);
+    }
+
+    function projectId(string calldata name)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        uint256 _projectId = namehashToId[keccak256(abi.encodePacked(name))];
+        require(_projectId > 0, "project not exist");
+        return _projectId;
+    }
+
+    function getProject(string calldata name)
+        public
+        view
+        returns (uint256, Project memory)
+    {
+        uint256 _projectId = projectId(name);
+        return (_projectId, getProjectById(_projectId));
+    }
+
+    function getProjectById(uint256 _projectId)
+        public
+        view
+        returns (Project memory)
+    {
+        Project memory _project = projectArr[_projectId - 1];
+        return _project;
     }
 }

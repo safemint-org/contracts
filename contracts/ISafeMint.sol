@@ -22,32 +22,6 @@ interface ISafeMint {
         Status status; // 状态
     }
 
-    /// @dev 审计信息
-    struct Audit {
-        uint256 projectId; // 项目id索引
-        address auditor; // 审计员
-        uint256 auditTime; // 审计时间
-        string comments; // 审计备注
-        uint256 auditFee; // 审计押金
-        Status status; // 状态
-    }
-
-    /// @dev 挑战信息
-    struct Challenge {
-        uint256 projectId; // 项目id索引
-        address challenger; // 挑战者
-        uint256 time; // 挑战时间
-        string comments; // 原因备注
-        uint256 challengeFee; // 审计押金
-    }
-
-    /// @dev 项目收费记录
-    struct FeeRecord {
-        uint256 auditTime; // 审计时间
-        address auditor; // 审计员
-        uint256 value; // 收费数量
-    }
-
     /// @dev 提交项目
     event SaveProject(
         string indexed name,
@@ -60,33 +34,38 @@ interface ISafeMint {
         uint256 projectId
     );
 
-    /// @dev 审计项目
-    event AuditProject(
-        string indexed name,
-        address indexed auditor,
-        uint256 auditPrice,
-        string comments,
-        Status status
-    );
-
-    /// @dev 挑战项目
-    event ChallengeProject(
-        string indexed name,
-        address indexed challenger,
-        uint256 challengePrice,
-        string comments
-    );
-
-    event ArbitrateProject(
-        string indexed name,
-        address indexed arbitrator,
-        Status status
-    );
-
+    /// @dev 编辑项目
     event EditProject(
         string indexed name,
         uint256 startTime,
         uint256 endTime,
         string ipfsAddress
     );
+
+    /// @dev 状态转换
+    event ProjectStatus(string indexed name, Status status);
+
+    /// @dev 审计合约提币
+    event AuditorClaimFee(string indexed name, uint256 projectFee);
+
+    /// @dev 返回项目ID
+    function projectId(string calldata name) external view returns (uint256);
+
+    /// @dev 修改项目状态
+    function projectStatus(string calldata name, Status status) external;
+
+    /// @dev 获取项目信息
+    function getProject(string calldata name)
+        external
+        view
+        returns (uint256, Project memory);
+
+    /// @dev 获取项目信息
+    function getProjectById(uint256 _projectId)
+        external
+        view
+        returns (Project memory);
+
+    /// @dev 审计合约提币
+    function auditorClaimFee(string calldata name) external;
 }
