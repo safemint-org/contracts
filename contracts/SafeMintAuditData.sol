@@ -19,7 +19,7 @@ contract SafeMintAuditData is ISafeMintAudit {
     /// @dev 挑战押金
     uint256 public challengePrice;
     /// @dev 挑战时长
-    uint256 public duration;
+    uint256 public duration = 19;
 
     // Auditor 常量
     bytes32 public constant AUDITOR_ROLE = keccak256("AUDITOR_ROLE");

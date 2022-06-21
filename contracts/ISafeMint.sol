@@ -29,8 +29,8 @@ interface ISafeMint {
         address indexed projectContract,
         uint256 startTime,
         uint256 endTime,
-        uint256 projectPrice,
         string ipfsAddress,
+        uint256 projectPrice,
         uint256 projectId
     );
 

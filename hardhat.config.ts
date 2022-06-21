@@ -6,6 +6,8 @@ import "@nomiclabs/hardhat-waffle";
 import "@typechain/hardhat";
 import "hardhat-gas-reporter";
 import "solidity-coverage";
+import { deployContract, expandDecimals } from "./scripts/deployTool";
+import { TokenERC20, SafeMint, SafeMintAudit } from "./typechain";
 
 dotenv.config();
 
@@ -18,6 +20,45 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
     console.log(account.address);
   }
 });
+
+
+task("deploy", "deploy contract")
+  .setAction(
+    async ({ }, { ethers, run, network }) => {
+      await run("compile");
+      const [deployer, user, otherUser, auditor, arbitrator, challenger] = await ethers.getSigners();
+
+      const token = await deployContract(
+        "TokenERC20",
+        network.name,
+        ethers.getContractFactory,
+        deployer,
+        ["SafeMint Governance Token",
+          "SGT",
+          expandDecimals(100000000)]
+      ) as TokenERC20;
+
+      const safemint = await deployContract(
+        "SafeMint",
+        network.name,
+        ethers.getContractFactory,
+        deployer,
+        [token.address]
+      ) as SafeMint;
+      const audit = await deployContract(
+        "SafeMintAudit",
+        network.name,
+        ethers.getContractFactory,
+        deployer,
+        [token.address, safemint.address]
+      ) as SafeMintAudit;
+      await token.transfer(user.address, expandDecimals(10000000));
+      const AUDITOR_ROLE = await safemint.AUDITOR_ROLE();
+      await safemint.grantRole(AUDITOR_ROLE, audit.address);
+      const ARBITRATOR_ROLE = await audit.ARBITRATOR_ROLE();
+      await audit.grantRole(ARBITRATOR_ROLE, arbitrator.address);
+    }
+  );
 
 // You need to export an object to set up your config
 // Go to https://hardhat.org/config/ to learn more
@@ -48,15 +89,12 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    ropsten: {
-      url: process.env.ROPSTEN_URL || "",
-      accounts:
-        process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
+    rinkeby: {
+      url: process.env.RINKEBY_URL || "",
+      accounts: {
+        mnemonic: process.env.MNEMONIC
+      }
     },
-  },
-  gasReporter: {
-    enabled: process.env.REPORT_GAS !== undefined,
-    currency: "USD",
   },
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,

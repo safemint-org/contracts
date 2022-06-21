@@ -7,7 +7,7 @@ pragma solidity ^0.8.0;
  */
 library Arrays {
     function find(uint256[] storage values, uint256 value)
-        public
+        internal
         view
         returns (uint256)
     {
@@ -18,7 +18,7 @@ library Arrays {
         return i;
     }
 
-    function removeByValue(uint256[] storage values, uint256 value) public {
+    function removeByValue(uint256[] storage values, uint256 value) internal {
         uint256 length = values.length;
         for (uint256 i = find(values, value); i < length; ++i) {
             if (i < length - 1) {

@@ -6,6 +6,7 @@ import "./SafeMintData.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract SafeMint is AccessControl, SafeMintData {
+    using Arrays for uint256[];
     modifier onlyAdmin() {
         require(
             hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
@@ -51,11 +52,13 @@ contract SafeMint is AccessControl, SafeMintData {
             !user[msg.sender] && msg.sender == tx.origin,
             "user aleardy saved"
         );
+        user[msg.sender] = true;
         // 一个项目地址只能提交一次
         require(
             !contractAddress[projectContract],
             "contractAddress aleardy saved"
         );
+        contractAddress[projectContract] = true;
         // 验证项目名称
         require(!projectName(name), "name aleardy used");
 
@@ -75,7 +78,7 @@ contract SafeMint is AccessControl, SafeMintData {
         // 推入项目数组
         projectArr.push(_project);
         // 项目ID
-        uint256 _projectId = pendingArr.length;
+        uint256 _projectId = projectArr.length;
         // 记录项目ID
         namehashToId[keccak256(abi.encodePacked(name))] = _projectId;
         // 推入处理中数组
@@ -86,8 +89,8 @@ contract SafeMint is AccessControl, SafeMintData {
             projectContract,
             startTime,
             endTime,
-            projectPrice,
             ipfsAddress,
+            projectPrice,
             _projectId
         );
     }
@@ -119,7 +122,7 @@ contract SafeMint is AccessControl, SafeMintData {
         // 修改状态
         _saveProject(_projectId, _project);
         // 从驳回的数组中移除项目ID
-        Arrays.removeByValue(rejectArr, _projectId);
+        rejectArr.removeByValue(_projectId);
         // 推入到处理中数组
         pendingArr.push(_projectId);
         emit EditProject(name, startTime, endTime, ipfsAddress);
@@ -145,7 +148,7 @@ contract SafeMint is AccessControl, SafeMintData {
                 "Status error!"
             );
             // 从pending数组中移除项目ID
-            Arrays.removeByValue(pendingArr, _projectId);
+            pendingArr.removeByValue(_projectId);
             // 如果状态为通过
             if (status == Status.passed) {
                 // 推入通过数组
@@ -171,10 +174,10 @@ contract SafeMint is AccessControl, SafeMintData {
             // 确认状态输入正确
             require(
                 status == Status.passed || status == Status.locked,
-                "Status error!"
+                "1Status error!"
             );
             // 从挑战的数组中移除项目ID
-            Arrays.removeByValue(challengeArr, _projectId);
+            challengeArr.removeByValue(_projectId);
             if (status == Status.passed) {
                 // 修改状态
                 _project.status = Status.passed;
@@ -182,7 +185,7 @@ contract SafeMint is AccessControl, SafeMintData {
             // 如果状态为锁定
             if (status == Status.locked) {
                 // 从通过的数组中移除项目ID
-                Arrays.removeByValue(passedArr, _projectId);
+                passedArr.removeByValue(_projectId);
                 // 推入锁定数组
                 lockedArr.push(_projectId);
                 // 修改状态
@@ -195,6 +198,8 @@ contract SafeMint is AccessControl, SafeMintData {
             challengeArr.push(_projectId);
             // 修改状态
             _project.status = Status.challenge;
+        } else {
+            revert ProjectStatusError(_project.status);
         }
         _saveProject(_projectId, _project);
         // 触发事件
@@ -256,7 +261,7 @@ contract SafeMint is AccessControl, SafeMintData {
         // 用修改后的返回长度循环
         for (uint256 i = 0; i < _limit; ++i) {
             // 将项目信息赋值到新数组
-            _projects[i] = projectArr[arr[_index]];
+            _projects[i] = projectArr[arr[_index] - 1];
             // 索引累加
             _index++;
         }

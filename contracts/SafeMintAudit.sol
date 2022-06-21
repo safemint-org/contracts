@@ -1,7 +1,6 @@
 pragma solidity ^0.8.11;
 
 import "./access/AccessControl.sol";
-import "./utils/Arrays.sol";
 import "./SafeMintAuditData.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -19,7 +18,6 @@ contract SafeMintAudit is AccessControl, SafeMintAuditData {
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
         token = _token;
         safeMint = _safeMint;
-        AccessControl(_safeMint).grantRole(AUDITOR_ROLE, address(this));
     }
 
     /**
@@ -53,8 +51,7 @@ contract SafeMintAudit is AccessControl, SafeMintAuditData {
         );
         // 确认状态输入正确
         require(
-            _project.status == ISafeMint.Status.pending ||
-                _project.status == ISafeMint.Status.reject,
+            _project.status == ISafeMint.Status.pending,
             "Project status error!"
         );
 
@@ -187,7 +184,7 @@ contract SafeMintAudit is AccessControl, SafeMintAuditData {
             feeRecord[_projectId].value = 0;
         }
         // 修改项目状态
-        ISafeMint(safeMint).projectStatus(name, ISafeMint.Status.challenge);
+        ISafeMint(safeMint).projectStatus(name, status);
         emit ArbitrateProject(name, msg.sender, status);
     }
 
@@ -208,7 +205,7 @@ contract SafeMintAudit is AccessControl, SafeMintAuditData {
         require(
             _project.status == ISafeMint.Status.passed ||
                 _project.status == ISafeMint.Status.locked,
-            "Starus error"
+            "Starus error!"
         );
         require(feeRecord[_projectId].auditor == msg.sender, "auditor error!");
         uint256 value = feeRecord[_projectId].value;

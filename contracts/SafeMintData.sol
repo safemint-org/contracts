@@ -27,6 +27,8 @@ abstract contract SafeMintData is ISafeMint {
     /// @dev 提交项目的价格
     uint256 public projectPrice;
 
-    // Auditor 常量
+    /// @dev Auditor 常量
     bytes32 public constant AUDITOR_ROLE = keccak256("AUDITOR_ROLE");
+    /// @dev 报错
+    error ProjectStatusError(Status projectStatus);
 }
